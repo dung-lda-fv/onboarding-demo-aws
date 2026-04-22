@@ -7,10 +7,11 @@ set -euo pipefail
 AWS_REGION="us-east-1"
 AWS_ACCOUNT_ID="000000000000"
 LOCALSTACK_ENDPOINT="http://localhost:4566"
-ECR_REGISTRY="localhost:4566"
+# registry:2 container – thay thế ECR (LocalStack CE không lưu Docker image)
+ECR_REGISTRY="localhost:5000"
 ECR_REPO="my-app"
 IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo latest)}"
-FULL_IMAGE="${ECR_REGISTRY}/${AWS_ACCOUNT_ID}/${ECR_REPO}:${IMAGE_TAG}"
+FULL_IMAGE="${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
 
 export AWS_ACCESS_KEY_ID=test
 export AWS_SECRET_ACCESS_KEY=test
@@ -20,9 +21,9 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo " Deploy  →  ${FULL_IMAGE}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# ── 1. Start LocalStack ──────────────────────────────────────────────────────
-echo "[1/5] Starting LocalStack..."
-docker compose up -d localstack
+# ── 1. Start LocalStack & Registry ─────────────────────────────────────────
+echo "[1/5] Starting LocalStack & local registry..."
+docker compose up -d localstack registry
 echo "      Waiting for LocalStack to be healthy..."
 until curl -sf "${LOCALSTACK_ENDPOINT}/_localstack/health" | grep -q '"ecr": "running"'; do
   sleep 3
@@ -33,26 +34,21 @@ echo "      LocalStack is ready."
 echo "[2/5] Building Docker image..."
 docker build -t "${ECR_REPO}:${IMAGE_TAG}" ./app
 
-# ── 3. Push vào LocalStack ECR ───────────────────────────────────────────────
-echo "[3/5] Pushing to LocalStack ECR..."
+# ── 3. Push vào local registry ──────────────────────────────────────────────
+echo "[3/5] Pushing to local registry (localhost:5000)..."
 
-# Login ECR
-aws --endpoint-url="${LOCALSTACK_ENDPOINT}" \
-  ecr get-login-password --region "${AWS_REGION}" \
-  | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+# Không cần login – registry:2 không có auth
+docker tag "${ECR_REPO}:${IMAGE_TAG}" "${FULL_IMAGE}"
+docker push "${FULL_IMAGE}"
+docker tag "${ECR_REPO}:${IMAGE_TAG}" "${ECR_REGISTRY}/${ECR_REPO}:latest"
+docker push "${ECR_REGISTRY}/${ECR_REPO}:latest"
 
-# Tạo repo nếu chưa tồn tại
+# Vẫn tạo ECR repo trên LocalStack (để ECS task definition hợp lệ)
 aws --endpoint-url="${LOCALSTACK_ENDPOINT}" \
   ecr describe-repositories --repository-names "${ECR_REPO}" --region "${AWS_REGION}" \
   2>/dev/null || \
 aws --endpoint-url="${LOCALSTACK_ENDPOINT}" \
   ecr create-repository --repository-name "${ECR_REPO}" --region "${AWS_REGION}"
-
-# Tag & push
-docker tag "${ECR_REPO}:${IMAGE_TAG}" "${FULL_IMAGE}"
-docker push "${FULL_IMAGE}"
-docker tag "${ECR_REPO}:${IMAGE_TAG}" "${ECR_REGISTRY}/${AWS_ACCOUNT_ID}/${ECR_REPO}:latest"
-docker push "${ECR_REGISTRY}/${AWS_ACCOUNT_ID}/${ECR_REPO}:latest"
 
 # ── 4. Terraform apply ────────────────────────────────────────────────────────
 echo "[4/5] Running Terraform..."

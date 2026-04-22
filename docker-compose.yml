@@ -48,6 +48,17 @@ services:
     networks:
       - infra-net
 
+  # Local Docker Registry – thay thế ECR (LocalStack CE không lưu image)
+  registry:
+    image: registry:2
+    container_name: local-registry
+    ports:
+      - "5000:5000"
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: "true"
+    networks:
+      - infra-net
+
   # App – dùng để build image local / smoke test
   app:
     build:
