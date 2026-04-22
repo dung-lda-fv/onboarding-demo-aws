@@ -1,41 +1,54 @@
 version: "3.8"
+
 services:
   localstack:
     container_name: localstack
-    # Ép sử dụng bản community thay vì bản dev/latest dễ bị dính Pro
     image: localstack/localstack:latest
     ports:
       - "4566:4566"
     environment:
-      - LOCALSTACK_AUTH_TOKEN=ls-pUZIbero-0767-2075-cIQe-Koqakenobcbd # Thay thế bằng token của bạn nếu cần
+      - LOCALSTACK_AUTH_TOKEN=${LOCALSTACK_AUTH_TOKEN:-}
       - AWS_DEFAULT_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
-      - SERVICES=ecs,events,iam,sts,ec2, ecr
+      - SERVICES=ecr,ecs,iam,sts,ec2
       - DEBUG=1
       - DOCKER_HOST=unix:///var/run/docker.sock
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./volume:/var/lib/localstack"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     networks:
-      - infra-net 
+      - infra-net
+
+  # Terraform workspace – dùng để chạy tay qua docker compose exec
   terraform:
-      container_name: tf_workspace
-      image: hashicorp/terraform:latest
-      entrypoint: /bin/sh          # override entrypoint để vào shell
-      stdin_open: true
-      tty: true
-      working_dir: /workspace
-      volumes:
-        - ./terraform:/workspace # mount code terraform của bạn vào đây
-      environment:
-        - AWS_ACCESS_KEY_ID=test
-        - AWS_SECRET_ACCESS_KEY=test
-        - AWS_DEFAULT_REGION=us-east-1
-      depends_on:
-        - localstack
-      networks:
-        - infra-net
+    container_name: tf_workspace
+    image: hashicorp/terraform:latest
+    entrypoint: /bin/sh
+    stdin_open: true
+    tty: true
+    working_dir: /workspace
+    volumes:
+      - ./terraform:/workspace
+    environment:
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+      # Trỏ endpoint về localstack (nội bộ docker network)
+      - TF_VAR_localstack_endpoint=http://localstack:4566
+    depends_on:
+      localstack:
+        condition: service_healthy
+    networks:
+      - infra-net
+
+  # App – dùng để build image local / smoke test
   app:
     build:
       context: ./app
@@ -44,22 +57,7 @@ services:
       - "3000:3000"
     networks:
       - infra-net
-  ci:
-    image: docker:24-cli
-    container_name: ci
-    volumes:
-      - ./app:/app                              # mount code
-      - /var/run/docker.sock:/var/run/docker.sock  # dùng Docker của host
-    networks:
-      - infra-net
-    environment:
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - AWS_DEFAULT_REGION=us-east-1
-    entrypoint: ["tail", "-f", "/dev/null"]
-    depends_on:
-      localstack:
-        condition: service_healthy
+
 networks:
   infra-net:
     driver: bridge

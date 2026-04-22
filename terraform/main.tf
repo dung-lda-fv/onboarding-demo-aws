@@ -1,50 +1,88 @@
-# VPC
-resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
-  tags = { Name = "main-vpc" }
-}
+# ── ECR Repository ────────────────────────────────────────────────────────────
+resource "aws_ecr_repository" "app" {
+  name                 = "my-app"
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
 
-# Subnet
-resource "aws_subnet" "public" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.1.0/24"
-  availability_zone = "us-east-1a"
-  tags = { Name = "public-subnet" }
-}
-
-# Security Group
-resource "aws_security_group" "app_sg" {
-  name   = "app-sg"
-  vpc_id = aws_vpc.main.id
-
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+  tags = {
+    Name = "my-app"
+    Env  = var.env
   }
 }
 
-# EC2 Instance
-resource "aws_instance" "app_server" {
-  ami           = "ami-0f0de8ebb39825887"        # ← Đổi thành cái này
-  instance_type = "t2.micro"
-  subnet_id     = aws_subnet.public.id
+# ── IAM Role cho ECS Task Execution ──────────────────────────────────────────
+resource "aws_iam_role" "ecs_task_execution" {
+  name = "ecs-task-execution-role"
 
-  vpc_security_group_ids = [aws_security_group.app_sg.id]   # ← sửa tên arg
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+    }]
+  })
+}
 
-  user_data = <<-EOF
-    #!/bin/bash
-    docker pull ${var.docker_image}
-    docker run -d -p 80:3000 ${var.docker_image}
-  EOF
+resource "aws_iam_role_policy_attachment" "ecs_exec" {
+  role       = aws_iam_role.ecs_task_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
 
-  tags = { Name = "app-server-${var.env}" }
+# ── ECS Cluster ───────────────────────────────────────────────────────────────
+resource "aws_ecs_cluster" "main" {
+  name = "demo-cluster"
+
+  tags = {
+    Name = "demo-cluster"
+    Env  = var.env
+  }
+}
+
+# ── ECS Task Definition ───────────────────────────────────────────────────────
+resource "aws_ecs_task_definition" "app" {
+  family                   = "my-app-task"
+  network_mode             = "bridge"
+  requires_compatibilities = ["EC2"]
+  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+
+  container_definitions = jsonencode([{
+    name      = "my-app"
+    image     = "${aws_ecr_repository.app.repository_url}:${var.image_tag}"
+    essential = true
+
+    portMappings = [{
+      containerPort = 3000
+      hostPort      = 3000
+      protocol      = "tcp"
+    }]
+
+    logConfiguration = {
+      logDriver = "json-file"
+      options   = {}
+    }
+  }])
+
+  tags = {
+    Name     = "my-app-task"
+    Env      = var.env
+    ImageTag = var.image_tag
+  }
+}
+
+# ── ECS Service ───────────────────────────────────────────────────────────────
+resource "aws_ecs_service" "app" {
+  name            = "my-app-service"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.app.arn
+  desired_count   = 1
+  launch_type     = "EC2"
+
+  # Buộc redeploy khi task definition thay đổi
+  force_new_deployment = true
+
+  tags = {
+    Name = "my-app-service"
+    Env  = var.env
+  }
 }

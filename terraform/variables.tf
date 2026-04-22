@@ -1,9 +1,9 @@
-variable "docker_image" {
-  description = "Docker image để deploy"
-  default     = "my-app:latest"
-}
-
 variable "env" {
   description = "Environment"
   default     = "dev"
+}
+
+variable "image_tag" {
+  description = "Docker image tag được build từ CI (GITHUB_SHA)"
+  default     = "latest"
 }

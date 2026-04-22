@@ -1,7 +1,19 @@
-output "instance_id" {
-  value = aws_instance.app_server.id
+output "ecr_repository_url" {
+  description = "URL của ECR repository trên LocalStack"
+  value       = aws_ecr_repository.app.repository_url
 }
 
-output "instance_ip" {
-  value = aws_instance.app_server.private_ip
+output "ecs_cluster_name" {
+  description = "Tên ECS cluster"
+  value       = aws_ecs_cluster.main.name
+}
+
+output "ecs_service_name" {
+  description = "Tên ECS service"
+  value       = aws_ecs_service.app.name
+}
+
+output "deployed_image" {
+  description = "Image đang được deploy"
+  value       = "${aws_ecr_repository.app.repository_url}:${var.image_tag}"
 }

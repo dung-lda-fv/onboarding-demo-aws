@@ -4,28 +4,30 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 6.0"
     }
-    time = {
-      source  = "hashicorp/time"
-      version = "~> 0.9"
-    }
   }
 }
 
-provider "aws" {
-  region                      = "us-east-1"
-  access_key                  = "test"
-  secret_key                  = "test"
+# Endpoint URL có thể override qua biến môi trường TF_VAR_localstack_endpoint
+# - Khi chạy trong docker network  → http://localstack:4566
+# - Khi chạy trên host (CI runner) → http://localhost:4566
+variable "localstack_endpoint" {
+  description = "LocalStack endpoint URL"
+  default     = "http://localhost:4566"
+}
 
-  # Trỏ toàn bộ endpoint về LocalStack
-  # Dùng tên service "localstack" vì cùng docker network
+provider "aws" {
+  region     = "us-east-1"
+  access_key = "test"
+  secret_key = "test"
+
   endpoints {
-    ec2 = "http://localstack:4566"
-    s3 = "http://localstack:4566"
-    iam = "http://localstack:4566"
-    sts = "http://localstack:4566"
+    ecr = var.localstack_endpoint
+    ecs = var.localstack_endpoint
+    ec2 = var.localstack_endpoint
+    iam = var.localstack_endpoint
+    sts = var.localstack_endpoint
   }
 
-  # Bắt buộc khi dùng LocalStack
   skip_credentials_validation = true
   skip_metadata_api_check     = true
   skip_requesting_account_id  = true

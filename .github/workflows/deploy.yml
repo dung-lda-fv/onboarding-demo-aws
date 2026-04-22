@@ -1,0 +1,105 @@
+name: CI/CD – Build & Deploy to LocalStack
+
+on:
+  push:
+    branches: [main]
+
+# Biến dùng chung toàn workflow
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  ECR_REGISTRY: localhost:4566
+  ECR_REPOSITORY: my-app
+  AWS_ACCOUNT_ID: "000000000000"
+  LOCALSTACK_ENDPOINT: http://localhost:4566
+
+jobs:
+  build-and-deploy:
+    name: Build, Push & Deploy
+    # Self-hosted runner chạy trên máy local – có thể truy cập localhost:4566
+    runs-on: self-hosted
+
+    steps:
+      # ── 1. Checkout ────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Tính image tag từ short SHA ─────────────────────────────────────
+      - name: Set image tag
+        id: vars
+        run: echo "IMAGE_TAG=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      # ── 3. Build Docker image ───────────────────────────────────────────────
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t "$ECR_REPOSITORY:${{ steps.vars.outputs.IMAGE_TAG }}" \
+            ./app
+
+      # ── 4. Login vào LocalStack ECR ─────────────────────────────────────────
+      - name: Login to LocalStack ECR
+        run: |
+          aws --endpoint-url="$LOCALSTACK_ENDPOINT" \
+            ecr get-login-password --region "$AWS_REGION" \
+          | docker login --username AWS \
+              --password-stdin "$ECR_REGISTRY"
+
+      # ── 5. Tạo ECR repository nếu chưa tồn tại ─────────────────────────────
+      - name: Ensure ECR repository exists
+        run: |
+          aws --endpoint-url="$LOCALSTACK_ENDPOINT" \
+            ecr describe-repositories \
+            --repository-names "$ECR_REPOSITORY" \
+            --region "$AWS_REGION" 2>/dev/null \
+          || \
+          aws --endpoint-url="$LOCALSTACK_ENDPOINT" \
+            ecr create-repository \
+            --repository-name "$ECR_REPOSITORY" \
+            --region "$AWS_REGION"
+
+      # ── 6. Tag & Push image lên LocalStack ECR ──────────────────────────────
+      - name: Tag & Push image
+        run: |
+          FULL_IMAGE="$ECR_REGISTRY/$AWS_ACCOUNT_ID/$ECR_REPOSITORY:${{ steps.vars.outputs.IMAGE_TAG }}"
+          LATEST_IMAGE="$ECR_REGISTRY/$AWS_ACCOUNT_ID/$ECR_REPOSITORY:latest"
+
+          docker tag "$ECR_REPOSITORY:${{ steps.vars.outputs.IMAGE_TAG }}" "$FULL_IMAGE"
+          docker push "$FULL_IMAGE"
+
+          docker tag "$ECR_REPOSITORY:${{ steps.vars.outputs.IMAGE_TAG }}" "$LATEST_IMAGE"
+          docker push "$LATEST_IMAGE"
+
+          echo "Pushed: $FULL_IMAGE"
+
+      # ── 7. Terraform init & apply ────────────────────────────────────────────
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: terraform init -upgrade -input=false
+
+      - name: Terraform Apply
+        working-directory: ./terraform
+        run: |
+          terraform apply -auto-approve \
+            -var="image_tag=${{ steps.vars.outputs.IMAGE_TAG }}" \
+            -var="localstack_endpoint=$LOCALSTACK_ENDPOINT"
+
+      # ── 8. Force redeploy ECS service ────────────────────────────────────────
+      - name: Force redeploy ECS service
+        run: |
+          aws --endpoint-url="$LOCALSTACK_ENDPOINT" ecs update-service \
+            --cluster demo-cluster \
+            --service my-app-service \
+            --force-new-deployment \
+            --region "$AWS_REGION"
+
+      # ── 9. Verify deploy ─────────────────────────────────────────────────────
+      - name: Verify deployment
+        run: |
+          echo "Deployed image tag: ${{ steps.vars.outputs.IMAGE_TAG }}"
+          aws --endpoint-url="$LOCALSTACK_ENDPOINT" ecs describe-services \
+            --cluster demo-cluster \
+            --services my-app-service \
+            --region "$AWS_REGION" \
+            --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount}' \
+            --output table
