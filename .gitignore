@@ -1,0 +1,47 @@
+# ─── Terraform ────────────────────────────────────────────────────────────────
+# Provider binaries & plugin cache
+**/.terraform/
+
+# State files (contain sensitive infrastructure data)
+*.tfstate
+*.tfstate.backup
+
+# Plan files
+*.tfplan
+*.tfplan.json
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Crash log
+crash.log
+crash.*.log
+
+# Note: .terraform.lock.hcl is intentionally kept in version control
+
+# ─── LocalStack / Volume ──────────────────────────────────────────────────────
+volume/
+
+# ─── Node.js ──────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ─── OS / Editor ──────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Environment ──────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example

@@ -1,0 +1,66 @@
+version: "3.8"
+services:
+  localstack:
+    container_name: localstack
+    # Ép sử dụng bản community thay vì bản dev/latest dễ bị dính Pro
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      - LOCALSTACK_AUTH_TOKEN=ls-pUZIbero-0767-2075-cIQe-Koqakenobcbd # Thay thế bằng token của bạn nếu cần
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - SERVICES=ecs,events,iam,sts,ec2, ecr
+      - DEBUG=1
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./volume:/var/lib/localstack"
+    networks:
+      - infra-net 
+  terraform:
+      container_name: tf_workspace
+      image: hashicorp/terraform:latest
+      entrypoint: /bin/sh          # override entrypoint để vào shell
+      stdin_open: true
+      tty: true
+      working_dir: /workspace
+      volumes:
+        - ./terraform:/workspace # mount code terraform của bạn vào đây
+      environment:
+        - AWS_ACCESS_KEY_ID=test
+        - AWS_SECRET_ACCESS_KEY=test
+        - AWS_DEFAULT_REGION=us-east-1
+      depends_on:
+        - localstack
+      networks:
+        - infra-net
+  app:
+    build:
+      context: ./app
+    container_name: my-app
+    ports:
+      - "3000:3000"
+    networks:
+      - infra-net
+  ci:
+    image: docker:24-cli
+    container_name: ci
+    volumes:
+      - ./app:/app                              # mount code
+      - /var/run/docker.sock:/var/run/docker.sock  # dùng Docker của host
+    networks:
+      - infra-net
+    environment:
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+    entrypoint: ["tail", "-f", "/dev/null"]
+    depends_on:
+      localstack:
+        condition: service_healthy
+networks:
+  infra-net:
+    driver: bridge
+
