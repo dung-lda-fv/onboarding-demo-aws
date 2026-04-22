@@ -30,11 +30,21 @@ jobs:
 
       # ── 3. Đảm bảo LocalStack + registry đang chạy ───────────────────────
       - name: Start LocalStack & registry
+        env:
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
         run: |
           docker compose up -d localstack registry
-          until curl -sf "$LOCALSTACK_ENDPOINT/_localstack/health" | grep -q '"ecr"'; do
-            echo "Waiting for LocalStack..."; sleep 3
+          echo "Waiting for LocalStack to be ready..."
+          for i in $(seq 1 30); do
+            STATUS=$(curl -sf "$LOCALSTACK_ENDPOINT/_localstack/health" 2>/dev/null || echo "")
+            if echo "$STATUS" | grep -q '"running"'; then
+              echo "LocalStack ready!"
+              break
+            fi
+            echo "Attempt $i/30..."
+            sleep 5
           done
+          curl -sf "$LOCALSTACK_ENDPOINT/_localstack/health" | python3 -m json.tool
 
       # ── 4. Build Docker image ─────────────────────────────────────────────
       - name: Build Docker image
