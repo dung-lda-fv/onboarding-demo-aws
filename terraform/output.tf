@@ -17,3 +17,8 @@ output "deployed_image" {
   description = "Image đang được deploy"
   value       = "${aws_ecr_repository.app.repository_url}:${var.image_tag}"
 }
+
+output "cloudwatch_log_group" {
+  description = "CloudWatch Log Group cho app"
+  value       = aws_cloudwatch_log_group.app.name
+}

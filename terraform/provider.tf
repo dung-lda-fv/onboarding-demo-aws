@@ -21,11 +21,13 @@ provider "aws" {
   secret_key = "test"
 
   endpoints {
-    ecr = var.localstack_endpoint
-    ecs = var.localstack_endpoint
-    ec2 = var.localstack_endpoint
-    iam = var.localstack_endpoint
-    sts = var.localstack_endpoint
+    ecr            = var.localstack_endpoint
+    ecs            = var.localstack_endpoint
+    ec2            = var.localstack_endpoint
+    iam            = var.localstack_endpoint
+    sts            = var.localstack_endpoint
+    cloudwatch     = var.localstack_endpoint
+    cloudwatchlogs = var.localstack_endpoint
   }
 
   skip_credentials_validation = true

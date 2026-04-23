@@ -101,9 +101,15 @@ jobs:
         run: |
           IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:${{ steps.vars.outputs.IMAGE_TAG }}"
           echo "Running smoke test for $IMAGE ..."
-          docker run -d --rm --name smoke-test -p 3001:3000 "$IMAGE"
-          sleep 2
+          docker run -d --rm --name smoke-test -p 3001:3000 \
+            -e LOCALSTACK_ENDPOINT="$LOCALSTACK_ENDPOINT" \
+            -e IMAGE_TAG="${{ steps.vars.outputs.IMAGE_TAG }}" \
+            --network host \
+            "$IMAGE"
+          sleep 3
           RESPONSE=$(curl -sf --retry 5 --retry-delay 1 http://localhost:3001)
+          # Gửi thêm vài request để tạo logs
+          for i in 1 2 3; do curl -sf http://localhost:3001/health?req=$i > /dev/null; done
           docker stop smoke-test || true
           echo "App response: $RESPONSE"
           if [ -z "$RESPONSE" ]; then

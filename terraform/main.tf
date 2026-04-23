@@ -10,6 +10,17 @@ resource "aws_ecr_repository" "app" {
   }
 }
 
+# ── CloudWatch Log Group ───────────────────────────────────────────────────────
+resource "aws_cloudwatch_log_group" "app" {
+  name              = "/ecs/my-app"
+  retention_in_days = 7
+
+  tags = {
+    Name = "/ecs/my-app"
+    Env  = var.env
+  }
+}
+
 # ── IAM Role cho ECS Task Execution ──────────────────────────────────────────
 resource "aws_iam_role" "ecs_task_execution" {
   name = "ecs-task-execution-role"
