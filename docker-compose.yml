@@ -9,7 +9,7 @@ services:
       - AWS_DEFAULT_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
-      - SERVICES=ecr,ecs,iam,sts,ec2
+      - SERVICES=ecr,ecs,iam,sts,ec2,cloudwatch,logs
       - DEBUG=1
       - DOCKER_HOST=unix:///var/run/docker.sock
     volumes:
