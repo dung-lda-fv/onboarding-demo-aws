@@ -102,23 +102,89 @@ jobs:
           IMAGE="$ECR_REGISTRY/$ECR_REPOSITORY:${{ steps.vars.outputs.IMAGE_TAG }}"
           echo "Running smoke test for $IMAGE ..."
           # host.docker.internal: để container reach LocalStack trên Docker host (macOS)
-          docker run -d --rm --name smoke-test -p 3001:3000 \
+          docker run -d --name smoke-test -p 3001:3000 \
             -e LOCALSTACK_ENDPOINT="http://host.docker.internal:4566" \
             -e IMAGE_TAG="${{ steps.vars.outputs.IMAGE_TAG }}" \
             "$IMAGE"
           sleep 3
           RESPONSE=$(curl -sf --retry 5 --retry-delay 1 http://localhost:3001)
-          # Gửi thêm vài request để tạo logs
-          for i in 1 2 3; do curl -sf "http://localhost:3001/health?req=$i" > /dev/null; done
-          docker stop smoke-test || true
           echo "App response: $RESPONSE"
           if [ -z "$RESPONSE" ]; then
             echo "❌ Smoke test FAILED – empty response"
+            docker stop smoke-test || true
             exit 1
           fi
+          # Gửi thêm requests để tạo nhiều CloudWatch log events
+          echo "Generating additional log events..."
+          for i in 1 2 3 4 5; do
+            curl -sf "http://localhost:3001/health?req=$i" > /dev/null
+            echo "  → request $i sent"
+          done
+          curl -sf "http://localhost:3001/api/status" > /dev/null
+          curl -sf "http://localhost:3001/api/version" > /dev/null
+          # Chờ app flush logs lên CloudWatch trước khi stop
+          sleep 3
+          docker stop smoke-test || true
           echo "✅ Smoke test PASSED"
 
-      # ── 10. Verify LocalStack ECS state ───────────────────────────────────
+      # ── 10. Show CloudWatch Logs ──────────────────────────────────────────
+      - name: Show CloudWatch Logs
+        run: |
+          echo "╔══════════════════════════════════════════════════════════╗"
+          echo "║           CloudWatch Logs – LocalStack Demo              ║"
+          echo "╚══════════════════════════════════════════════════════════╝"
+
+          echo ""
+          echo "── Log Groups ──────────────────────────────────────────────"
+          aws --endpoint-url="$LOCALSTACK_ENDPOINT" logs describe-log-groups \
+            --log-group-name-prefix "/ecs/my-app" \
+            --query 'logGroups[*].{Group:logGroupName,RetentionDays:retentionInDays,StoredBytes:storedBytes}' \
+            --output table
+
+          echo ""
+          echo "── Log Streams ─────────────────────────────────────────────"
+          aws --endpoint-url="$LOCALSTACK_ENDPOINT" logs describe-log-streams \
+            --log-group-name "/ecs/my-app" \
+            --order-by LastEventTime \
+            --descending \
+            --query 'logStreams[*].{Stream:logStreamName,FirstEvent:firstEventTimestamp,LastEvent:lastEventTimestamp,Events:storedBytes}' \
+            --output table
+
+          STREAM=$(aws --endpoint-url="$LOCALSTACK_ENDPOINT" logs describe-log-streams \
+            --log-group-name "/ecs/my-app" \
+            --order-by LastEventTime \
+            --descending \
+            --query 'logStreams[0].logStreamName' \
+            --output text 2>/dev/null)
+
+          echo ""
+          echo "── Log Events from: $STREAM ────────────────────────────────"
+          aws --endpoint-url="$LOCALSTACK_ENDPOINT" logs get-log-events \
+            --log-group-name "/ecs/my-app" \
+            --log-stream-name "$STREAM" \
+            --query 'events[*].message' \
+            --output text 2>/dev/null \
+          | tr '\t' '\n' \
+          | while IFS= read -r line; do
+              # Parse JSON để hiện thị đẹp hơn
+              TIME=$(echo "$line" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('time',''))" 2>/dev/null || echo "")
+              LEVEL=$(echo "$line" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('level',''))" 2>/dev/null || echo "")
+              CAT=$(echo "$line" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('cat',''))" 2>/dev/null || echo "")
+              MSG=$(echo "$line" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(d.get('msg',''))" 2>/dev/null || echo "$line")
+              printf "  [%-5s] %-8s %s  %s\n" "$LEVEL" "$CAT" "$TIME" "$MSG"
+            done
+
+          echo ""
+          echo "Total log events in stream:"
+          aws --endpoint-url="$LOCALSTACK_ENDPOINT" logs get-log-events \
+            --log-group-name "/ecs/my-app" \
+            --log-stream-name "$STREAM" \
+            --query 'length(events)' \
+            --output text 2>/dev/null
+          echo ""
+          echo "✅ CloudWatch Logs demo complete!"
+
+      # ── 11. Verify LocalStack ECS state ───────────────────────────────────
       - name: Verify deployment
         run: |
           echo "✅ Deployed image: $ECR_REGISTRY/$ECR_REPOSITORY:${{ steps.vars.outputs.IMAGE_TAG }}"
@@ -135,7 +201,7 @@ jobs:
             --query 'services[0].{Status:status,Desired:desiredCount,Running:runningCount,TaskDefinition:taskDefinition}' \
             --output table
 
-      # ── 11. Cleanup old Docker images ─────────────────────────────────────
+      # ── 12. Cleanup old Docker images ─────────────────────────────────────
       - name: Cleanup old Docker images
         if: always()
         run: |
